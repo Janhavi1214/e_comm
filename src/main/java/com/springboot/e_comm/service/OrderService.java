@@ -1,9 +1,9 @@
 package com.springboot.e_comm.service;
 
-
 import com.springboot.e_comm.entity.Order;
 import com.springboot.e_comm.entity.OrderStatus;
 import com.springboot.e_comm.repo.OrderRepo;
+import com.springboot.e_comm.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,9 +17,9 @@ public class OrderService {
 
     private final OrderRepo orderRepository;
 
-    // Create order
+    // Create order from cart
     public Order createOrder(Order order) {
-        order.setStatus(OrderStatus.PENDING);
+        order.setStatus(OrderStatus.PENDING);  // ✅ Direct enum, NO String.valueOf()!
         return orderRepository.save(order);
     }
 
@@ -48,7 +48,7 @@ public class OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found"));
 
-        order.setStatus(newStatus);
+        order.setStatus(newStatus);  // ✅ Direct enum assignment!
         return orderRepository.save(order);
     }
 
@@ -57,11 +57,12 @@ public class OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found"));
 
+        // ✅ Compare enums with ==, not strings!
         if (order.getStatus() == OrderStatus.DELIVERED) {
             throw new IllegalArgumentException("Cannot cancel delivered order");
         }
 
-        order.setStatus(OrderStatus.CANCELLED);
+        order.setStatus(OrderStatus.CANCELLED);  // ✅ Direct enum!
         return orderRepository.save(order);
     }
 }
