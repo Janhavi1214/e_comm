@@ -7,9 +7,12 @@ import com.springboot.e_comm.repo.CartItemRepo;
 import com.springboot.e_comm.repo.ProductRepo;
 import com.springboot.e_comm.repo.UserRepo;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.util.List;
 
 @Service
+@Transactional
 public class CartService {
 
     private final CartItemRepo cartItemRepo;

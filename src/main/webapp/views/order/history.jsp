@@ -82,6 +82,7 @@
                             </td>
                             <td>
                                 <a href="/orders/${order.id}" class="btn btn-primary">View Details</a>
+                                <a href="/orders/${order.id}/track" class="btn btn-primary">🚚 Track</a>
                             </td>
                         </tr>
                     </c:forEach>

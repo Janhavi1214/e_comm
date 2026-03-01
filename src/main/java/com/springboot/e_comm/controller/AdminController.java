@@ -1,178 +1,136 @@
 package com.springboot.e_comm.controller;
 
-
+import com.springboot.e_comm.entity.Order;
+import com.springboot.e_comm.entity.OrderStatus;
 import com.springboot.e_comm.entity.Product;
-import com.springboot.e_comm.entity.Category;
-import com.springboot.e_comm.service.ProductService;
-import com.springboot.e_comm.service.CategoryService;
-import com.springboot.e_comm.service.UserService;
+import com.springboot.e_comm.exception.ResourceNotFoundException;
 import com.springboot.e_comm.service.OrderService;
-import lombok.RequiredArgsConstructor;
+import com.springboot.e_comm.service.ProductService;
+import jakarta.servlet.http.HttpSession;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
-import jakarta.validation.Valid;
+import java.util.List;
 
+@Slf4j
 @Controller
 @RequestMapping("/admin")
-@RequiredArgsConstructor
 public class AdminController {
 
     private final ProductService productService;
-    private final CategoryService categoryService;
-    private final UserService userService;
     private final OrderService orderService;
 
-    // Admin dashboard
+    public AdminController(ProductService productService, OrderService orderService) {
+        this.productService = productService;
+        this.orderService = orderService;
+    }
+
+    private boolean isNotAdmin(HttpSession session) {
+        Object userRole = session.getAttribute("userRole");
+        if (userRole == null) return true;
+        return !userRole.toString().equals("ADMIN");
+    }
+
     @GetMapping("/dashboard")
-    public String adminDashboard(Model model) {
-        model.addAttribute("totalProducts", productService.getAllActiveProducts().size());
-        model.addAttribute("totalUsers", userService.getAllUsers().size());
-        model.addAttribute("totalOrders", orderService.getAllOrders().size());
-        return "admin/dashboard";
+    public String dashboard(HttpSession session, Model model) {
+        if (isNotAdmin(session)) return "redirect:/products";
+        String username = (String) session.getAttribute("loggedInUser");
+        log.info("Admin dashboard accessed by: {}", username);
+
+        List<Product> allProducts = productService.getAllProducts();
+        List<Order> allOrders = orderService.getAllOrders();
+        Double totalRevenue = allOrders.stream().mapToDouble(Order::getTotalAmount).sum();
+
+        model.addAttribute("totalProducts", allProducts.size());
+        model.addAttribute("totalOrders", allOrders.size());
+        model.addAttribute("totalRevenue", totalRevenue);
+        model.addAttribute("username", username);
+        model.addAttribute("pendingCount",   allOrders.stream().filter(o -> o.getStatus() == OrderStatus.PENDING).count());
+        model.addAttribute("confirmedCount", allOrders.stream().filter(o -> o.getStatus() == OrderStatus.CONFIRMED).count());
+        model.addAttribute("shippedCount",   allOrders.stream().filter(o -> o.getStatus() == OrderStatus.SHIPPED).count());
+        model.addAttribute("deliveredCount", allOrders.stream().filter(o -> o.getStatus() == OrderStatus.DELIVERED).count());
+        model.addAttribute("cancelledCount", allOrders.stream().filter(o -> o.getStatus() == OrderStatus.CANCELLED).count());
+
+        return "views/admin/dashboard";
     }
-
-    // --- CATEGORY MANAGEMENT ---
-
-    @GetMapping("/categories")
-    public String listCategories(Model model) {
-        model.addAttribute("categories", categoryService.getAllCategories());
-        return "admin/categories/list";
-    }
-
-    @GetMapping("/categories/add")
-    public String showAddCategoryForm(Model model) {
-        model.addAttribute("category", new Category());
-        return "admin/categories/form";
-    }
-
-    @PostMapping("/categories")
-    public String saveCategory(@Valid @ModelAttribute Category category,
-                               BindingResult bindingResult,
-                               RedirectAttributes redirectAttributes) {
-        if (bindingResult.hasErrors()) {
-            return "admin/categories/form";
-        }
-
-        try {
-            categoryService.createCategory(category);
-            redirectAttributes.addFlashAttribute("success", "Category created successfully");
-            return "redirect:/admin/categories";
-        } catch (IllegalArgumentException e) {
-            redirectAttributes.addFlashAttribute("error", e.getMessage());
-            return "redirect:/admin/categories/add";
-        }
-    }
-
-    @GetMapping("/categories/{id}/edit")
-    public String showEditCategoryForm(@PathVariable Long id, Model model) {
-        model.addAttribute("category", categoryService.getCategoryById(id).orElse(null));
-        return "admin/categories/form";
-    }
-
-    @PostMapping("/categories/{id}")
-    public String updateCategory(@PathVariable Long id,
-                                 @Valid @ModelAttribute Category category,
-                                 BindingResult bindingResult,
-                                 RedirectAttributes redirectAttributes) {
-        if (bindingResult.hasErrors()) {
-            return "admin/categories/form";
-        }
-
-        try {
-            categoryService.updateCategory(id, category);
-            redirectAttributes.addFlashAttribute("success", "Category updated successfully");
-            return "redirect:/admin/categories";
-        } catch (IllegalArgumentException e) {
-            redirectAttributes.addFlashAttribute("error", e.getMessage());
-            return "redirect:/admin/categories/" + id + "/edit";
-        }
-    }
-
-    @PostMapping("/categories/{id}/delete")
-    public String deleteCategory(@PathVariable Long id, RedirectAttributes redirectAttributes) {
-        try {
-            categoryService.deleteCategory(id);
-            redirectAttributes.addFlashAttribute("success", "Category deleted successfully");
-        } catch (Exception e) {
-            redirectAttributes.addFlashAttribute("error", "Error deleting category");
-        }
-        return "redirect:/admin/categories";
-    }
-
-    // --- PRODUCT MANAGEMENT ---
 
     @GetMapping("/products")
-    public String listProducts(Model model) {
-        model.addAttribute("products", productService.getAllActiveProducts());
-        return "admin/products/list";
+    public String manageProducts(HttpSession session, Model model) {
+        if (isNotAdmin(session)) return "redirect:/products";
+        log.info("Admin products page accessed");
+        model.addAttribute("products", productService.getAllProducts());
+        return "views/admin/products";
     }
 
     @GetMapping("/products/add")
-    public String showAddProductForm(Model model) {
+    public String addProductForm(HttpSession session, Model model) {
+        if (isNotAdmin(session)) return "redirect:/products";
         model.addAttribute("product", new Product());
-        model.addAttribute("categories", categoryService.getAllCategories());
-        return "admin/products/form";
+        return "views/admin/product-form";
     }
 
-    @PostMapping("/products")
-    public String saveProduct(@Valid @ModelAttribute Product product,
-                              BindingResult bindingResult,
-                              Model model,
-                              RedirectAttributes redirectAttributes) {
-        if (bindingResult.hasErrors()) {
-            model.addAttribute("categories", categoryService.getAllCategories());
-            return "admin/products/form";
-        }
-
-        try {
-            productService.createProduct(product);
-            redirectAttributes.addFlashAttribute("success", "Product created successfully");
-            return "redirect:/admin/products";
-        } catch (Exception e) {
-            redirectAttributes.addFlashAttribute("error", e.getMessage());
-            return "redirect:/admin/products/add";
-        }
-    }
-
-    @GetMapping("/products/{id}/edit")
-    public String showEditProductForm(@PathVariable Long id, Model model) {
-        model.addAttribute("product", productService.getProductById(id).orElse(null));
-        model.addAttribute("categories", categoryService.getAllCategories());
-        return "admin/products/form";
-    }
-
-    @PostMapping("/products/{id}")
-    public String updateProduct(@PathVariable Long id,
-                                @Valid @ModelAttribute Product product,
-                                BindingResult bindingResult,
-                                Model model,
-                                RedirectAttributes redirectAttributes) {
-        if (bindingResult.hasErrors()) {
-            model.addAttribute("categories", categoryService.getAllCategories());
-            return "admin/products/form";
-        }
-
-        try {
-            productService.updateProduct(id, product);
-            redirectAttributes.addFlashAttribute("success", "Product updated successfully");
-            return "redirect:/admin/products";
-        } catch (Exception e) {
-            redirectAttributes.addFlashAttribute("error", e.getMessage());
-            return "redirect:/admin/products/" + id + "/edit";
-        }
-    }
-
-    @PostMapping("/products/{id}/delete")
-    public String deleteProduct(@PathVariable Long id, RedirectAttributes redirectAttributes) {
-        try {
-            productService.deleteProduct(id);
-            redirectAttributes.addFlashAttribute("success", "Product deleted successfully");
-        } catch (Exception e) {
-            redirectAttributes.addFlashAttribute("error", "Error deleting product");
-        }
+    @PostMapping("/products/save")
+    public String saveProduct(@ModelAttribute Product product, HttpSession session) {
+        if (isNotAdmin(session)) return "redirect:/products";
+        productService.createProduct(product);
+        log.info("Product created: {}", product.getName());
         return "redirect:/admin/products";
+    }
+
+    @GetMapping("/products/edit/{id}")
+    public String editProductForm(@PathVariable Long id, HttpSession session, Model model) {
+        if (isNotAdmin(session)) return "redirect:/products";
+        Product product = productService.getProductById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        model.addAttribute("product", product);
+        return "views/admin/product-form";
+    }
+
+    @PostMapping("/products/update/{id}")
+    public String updateProduct(@PathVariable Long id, @ModelAttribute Product product, HttpSession session) {
+        if (isNotAdmin(session)) return "redirect:/products";
+        productService.updateProduct(id, product);
+        log.info("Product updated | id: {}", id);
+        return "redirect:/admin/products";
+    }
+
+    @GetMapping("/products/delete/{id}")
+    public String deleteProduct(@PathVariable Long id, HttpSession session) {
+        if (isNotAdmin(session)) return "redirect:/products";
+        productService.deleteProduct(id);
+        log.info("Product deleted | id: {}", id);
+        return "redirect:/admin/products";
+    }
+
+    @GetMapping("/orders")
+    public String manageOrders(HttpSession session, Model model) {
+        if (isNotAdmin(session)) return "redirect:/products";
+        log.info("Admin orders page accessed");
+        List<Order> orders = orderService.getAllOrders();
+        model.addAttribute("orders", orders);
+        model.addAttribute("statuses", OrderStatus.values());
+        model.addAttribute("pendingCount",   orders.stream().filter(o -> o.getStatus() == OrderStatus.PENDING).count());
+        model.addAttribute("confirmedCount", orders.stream().filter(o -> o.getStatus() == OrderStatus.CONFIRMED).count());
+        model.addAttribute("shippedCount",   orders.stream().filter(o -> o.getStatus() == OrderStatus.SHIPPED).count());
+        model.addAttribute("deliveredCount", orders.stream().filter(o -> o.getStatus() == OrderStatus.DELIVERED).count());
+        model.addAttribute("cancelledCount", orders.stream().filter(o -> o.getStatus() == OrderStatus.CANCELLED).count());
+        return "views/admin/orders";
+    }
+
+    @PostMapping("/orders/update-status")
+    public String updateOrderStatus(@RequestParam Long orderId, @RequestParam OrderStatus newStatus,
+                                    HttpSession session, RedirectAttributes redirectAttributes) {
+        if (isNotAdmin(session)) return "redirect:/products";
+        try {
+            orderService.updateOrderStatus(orderId, newStatus);
+            log.info("Order status updated | orderId: {} | newStatus: {}", orderId, newStatus);
+            redirectAttributes.addFlashAttribute("success", "Order #" + orderId + " updated to " + newStatus);
+        } catch (Exception e) {
+            log.error("Failed to update order | orderId: {} | error: {}", orderId, e.getMessage());
+            redirectAttributes.addFlashAttribute("error", "Failed to update order #" + orderId + ": " + e.getMessage());
+        }
+        return "redirect:/admin/orders";
     }
 }

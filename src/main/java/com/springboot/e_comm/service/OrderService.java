@@ -3,66 +3,127 @@ package com.springboot.e_comm.service;
 import com.springboot.e_comm.entity.Order;
 import com.springboot.e_comm.entity.OrderStatus;
 import com.springboot.e_comm.repo.OrderRepo;
-import com.springboot.e_comm.entity.User;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.util.List;
 import java.util.Optional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class OrderService {
 
     private final OrderRepo orderRepository;
+    private final EmailService emailService;
 
-    // Create order from cart
+    // Existing — unchanged (used by MVC controllers)
     public Order createOrder(Order order) {
-        order.setStatus(OrderStatus.PENDING);  // ✅ Direct enum, NO String.valueOf()!
-        return orderRepository.save(order);
+        order.setStatus(OrderStatus.PENDING);
+        Order saved = orderRepository.save(order);
+        log.info("Order created | orderId: {} | userId: {} | total: {}",
+                saved.getId(), saved.getUser().getId(), saved.getTotalAmount());
+        return saved;
     }
 
-    // Get all orders
     public List<Order> getAllOrders() {
-        return orderRepository.findAll();
+        List<Order> orders = orderRepository.findAll();
+        log.info("Fetched all orders | count: {}", orders.size());
+        return orders;
     }
 
-    // Get order by ID
     public Optional<Order> getOrderById(Long id) {
+        log.info("Fetching order | orderId: {}", id);
         return orderRepository.findById(id);
     }
 
-    // Get orders by user
     public List<Order> getOrdersByUser(Long userId) {
-        return orderRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        List<Order> orders = orderRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        log.info("Fetched orders for userId: {} | count: {}", userId, orders.size());
+        return orders;
     }
 
-    // Get orders by status
     public List<Order> getOrdersByStatus(OrderStatus status) {
-        return orderRepository.findByStatus(status);
+        List<Order> orders = orderRepository.findByStatus(status);
+        log.info("Fetched orders by status: {} | count: {}", status, orders.size());
+        return orders;
     }
 
-    // Update order status
     public Order updateOrderStatus(Long orderId, OrderStatus newStatus) {
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+                .orElseThrow(() -> {
+                    log.error("Order not found | orderId: {}", orderId);
+                    return new IllegalArgumentException("Order not found");
+                });
 
-        order.setStatus(newStatus);  // ✅ Direct enum assignment!
-        return orderRepository.save(order);
+        OrderStatus oldStatus = order.getStatus();
+        order.setStatus(newStatus);
+        Order saved = orderRepository.save(order);
+        log.info("Order status updated | orderId: {} | {} → {}", orderId, oldStatus, newStatus);
+
+        try {
+            emailService.sendOrderStatusEmail(
+                    order.getUser().getEmail(),
+                    saved.getId(),
+                    newStatus.name()
+            );
+        } catch (Exception e) {
+            log.error("Status email failed | orderId: {} | error: {}", orderId, e.getMessage());
+        }
+
+        return saved;
     }
 
-    // Cancel order
     public Order cancelOrder(Long orderId) {
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+                .orElseThrow(() -> {
+                    log.error("Order not found for cancellation | orderId: {}", orderId);
+                    return new IllegalArgumentException("Order not found");
+                });
 
-        // ✅ Compare enums with ==, not strings!
         if (order.getStatus() == OrderStatus.DELIVERED) {
+            log.warn("Cannot cancel delivered order | orderId: {}", orderId);
             throw new IllegalArgumentException("Cannot cancel delivered order");
         }
 
-        order.setStatus(OrderStatus.CANCELLED);  // ✅ Direct enum!
-        return orderRepository.save(order);
+        order.setStatus(OrderStatus.CANCELLED);
+        Order saved = orderRepository.save(order);
+        log.info("Order cancelled | orderId: {}", orderId);
+
+        try {
+            emailService.sendOrderStatusEmail(
+                    order.getUser().getEmail(),
+                    saved.getId(),
+                    "CANCELLED"
+            );
+        } catch (Exception e) {
+            log.error("Cancel email failed | orderId: {} | error: {}", orderId, e.getMessage());
+        }
+
+        return saved;
+    }
+
+    // ✅ NEW — Paginated methods (used by API)
+    public Page<Order> getAllOrdersPaginated(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Page<Order> result = orderRepository.findAll(pageable);
+        log.info("Fetched orders page: {}/{} | size: {}",
+                page + 1, result.getTotalPages(), size);
+        return result;
+    }
+
+    public Page<Order> getOrdersByUserPaginated(Long userId, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Page<Order> result = orderRepository.findByUserId(userId, pageable);
+        log.info("Fetched orders for userId: {} | page: {}/{} | size: {}",
+                userId, page + 1, result.getTotalPages(), size);
+        return result;
     }
 }

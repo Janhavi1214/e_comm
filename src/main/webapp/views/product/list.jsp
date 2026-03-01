@@ -41,8 +41,13 @@
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/success">Dashboard</a>
+            <a href="/products">🏠 Home</a>
             <a href="/cart">🛒 View Cart</a>
+            <a href="/orders/history">📦 My Orders</a>
+            <a href="/profile">👤 My Profile</a>
+            <c:if test="${sessionScope.userRole == 'ADMIN'}">
+                <a href="/admin/dashboard" style="color: #764ba2; font-weight: bold;">⚙️ Admin Panel</a>
+            </c:if>
             <a href="/logout">Logout</a>
         </div>
 
